@@ -7,6 +7,48 @@ from looking_glass import lookup, LookingGlassError, main, _format_timestamp, _t
 
 
 class LookupTests(unittest.TestCase):
+    def test_tls_verification_is_opt_in_bypass_for_both_providers(self):
+        import ssl
+        from looking_glass import _get, _rv_get
+        default_context_factory = ssl._create_default_https_context
+        for fetch, payload in ((_get, '{"status":"ok","data":{}}'),
+                               (_rv_get, '[]')):
+            for insecure in (False, True):
+                with patch("looking_glass.urlopen") as request, patch("looking_glass.time.sleep"):
+                    request.return_value.__enter__.return_value = io.StringIO(payload)
+                    fetch("test", {}, 30, insecure=insecure)
+                options = request.call_args.kwargs
+                if insecure:
+                    self.assertFalse(options["context"].check_hostname)
+                    self.assertEqual(options["context"].verify_mode, ssl.CERT_NONE)
+                else:
+                    self.assertNotIn("context", options)
+        self.assertIs(ssl._create_default_https_context, default_context_factory)
+
+    def test_insecure_reaches_discovery_and_route_requests(self):
+        for provider in ("ripe", "routeviews"):
+            def ripe(endpoint, params, timeout, **options):
+                self.assertTrue(options["insecure"])
+                return {"peers": {"RRC00": {}}} if endpoint == "ris-peers" else {"prefixes": [], "rrcs": []}
+
+            def routeviews(path, params, timeout, **options):
+                self.assertTrue(options["insecure"])
+                return ["rrc00"] if path == "rib/collectors" else []
+
+            with patch("looking_glass._get", side_effect=ripe) as ripe_api, patch("looking_glass._rv_get", side_effect=routeviews) as rv_api:
+                self.assertEqual(lookup("8.8.8.0/24", within=True, num_servers=1,
+                                        provider=provider, insecure=True), [])
+                self.assertEqual(ripe_api.call_count, 3 if provider == "ripe" else 1)
+                self.assertEqual(rv_api.call_count, 0 if provider == "ripe" else 2)
+
+    def test_insecure_cli_for_lookup_and_collectors(self):
+        with patch("looking_glass.lookup", return_value=[]) as query, redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["8.8.8.8", "--insecure"]), 0)
+            self.assertTrue(query.call_args.kwargs["insecure"])
+        with patch("looking_glass.list_servers", return_value=[]) as query, redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["--list-servers", "--insecure"]), 0)
+            self.assertTrue(query.call_args.kwargs["insecure"])
+
     def test_short_as_path_per_prefix_ties_and_limit(self):
         import json
         routes = [{"prefix": prefix, "as_path": path}
