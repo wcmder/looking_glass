@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "internet-looking-glass"
+version = "0.1.0"
+description = "Query public RIPE RIS BGP routes from Python or the command line"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+lg = "looking_glass:main"
+
+[tool.setuptools]
+py-modules = ["looking_glass"]
