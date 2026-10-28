@@ -5,6 +5,7 @@ Python 3.10+ client and `lg` command, with no runtime dependencies.
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
+python3 -m pip install --upgrade pip
 python3 -m pip install -e .
 lg 8.8.8.8
 lg 2001:4860:4860::8888
@@ -25,6 +26,12 @@ lg 10.22.2.23 --entries-per-prefix 1
 
 For later sessions, run `source .venv/bin/activate` to make `lg` available.
 The editable installation picks up changes to the Python source automatically.
+
+Run installation commands from the project directory containing `pyproject.toml`
+and `looking_glass.py`. If editable installation reports that `setup.py` or
+`setup.cfg` is missing, upgrade pip inside the activated virtual environment
+and retry. This project uses `pyproject.toml`; editable installs require
+pip 21.3 or newer. Python 3.10 or newer is also required.
 
 Without installation, use `python3 looking_glass.py 8.8.8.8`.
 
