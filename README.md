@@ -14,13 +14,13 @@ lg 8.8.8.8 --num-servers 3
 lg 8.8.8.8 --all-servers
 lg 8.8.8.8 --best-match --json
 lg 8.8.8.8 --include-default
-lg 156.63.0.0/16
-lg 156.63.0.0/16 --within --all-servers --json
-lg 158.63.4.0/24 --provider routeviews
+lg 10.37.0.0/16
+lg 10.37.0.0/16 --within --all-servers --json
+lg 10.22.4.0/24 --provider routeviews
 lg --provider routeviews --list-servers
-lg 158.63.4.0/24 --time-zone UTC
-lg 158.63.4.0/24 --time-zone America/New_York
-lg 158.63.2.23 --entries-per-prefix 1
+lg 10.22.4.0/24 --time-zone UTC
+lg 10.22.4.0/24 --time-zone America/New_York
+lg 10.22.2.23 --entries-per-prefix 1
 ```
 
 For later sessions, run `source .venv/bin/activate` to make `lg` available.
@@ -33,7 +33,7 @@ prefix, across the selected collectors. Default output includes all paths.
 This limits both text and JSON output, preserving the existing route order;
 it does not reduce API requests or choose a best path. Text output reports
 the displayed count and total observed count when paths are hidden.
-For a quick visibility check, use `lg 158.63.2.23 --best-match --entries-per-prefix 1`.
+For a quick visibility check, use `lg 10.22.2.23 --best-match --entries-per-prefix 1`.
 A result means the selected provider/collector observes a route, not proof
 of end-to-end reachability.
 
@@ -42,7 +42,7 @@ across the selected collectors. Ties are retained. Length is the number
 of whitespace-separated AS path entries, including repeated ASNs (prepends).
 This is an output filter, not the full BGP best-path selection process.
 It works with either provider and JSON, and runs before the per-prefix limit:
-`lg 158.63.2.23 --short-as-path --entries-per-prefix 1`.
+`lg 10.22.2.23 --short-as-path --entries-per-prefix 1`.
 
 Text timestamps default to **EST (fixed UTC−05:00, year round)**. Select a
 different zone with `--time-zone UTC` or an IANA name such as
@@ -78,7 +78,7 @@ request per unique contained prefix (plus the exact input prefix). It does
 not scan individual addresses. Results reflect prefixes visible to RIS
 discovery and current paths visible at the selected collectors; discovery
 and path data can differ in freshness. `--best-match` is only for IP input.
-For example, `lookup("156.63.0.0/16", servers=["RRC00"], within=True)` works in Python.
+For example, `lookup("10.37.0.0/16", servers=["RRC00"], within=True)` works in Python.
 
 For IP input, RIPE checks **all non-default covering prefixes**, most specific first.
 This makes 32 API requests for IPv4 or 128 for IPv6, with

@@ -10,35 +10,35 @@ class LookupTests(unittest.TestCase):
     def test_short_as_path_per_prefix_ties_and_limit(self):
         import json
         routes = [{"prefix": prefix, "as_path": path}
-                  for prefix, path in [("158.63.2.0/24", "1 2 3 3"),
-                                       ("158.63.2.0/24", "1 3"),
-                                       ("158.63.2.0/24", "2 3"),
-                                       ("158.63.0.0/16", "1 2 3"),
-                                       ("158.63.0.0/16", "1 2 3 3")]]
+                  for prefix, path in [("10.22.2.0/24", "1 2 3 3"),
+                                       ("10.22.2.0/24", "1 3"),
+                                       ("10.22.2.0/24", "2 3"),
+                                       ("10.22.0.0/16", "1 2 3"),
+                                       ("10.22.0.0/16", "1 2 3 3")]]
         for extra, expected in (([], ["1 3", "2 3", "1 2 3"]),
                                 (["--entries-per-prefix", "1"], ["1 3", "1 2 3"])):
             output = io.StringIO()
             with patch("looking_glass.lookup", return_value=routes), redirect_stdout(output):
-                self.assertEqual(main(["158.63.2.23", "--short-as-path", "--json", *extra]), 0)
+                self.assertEqual(main(["10.22.2.23", "--short-as-path", "--json", *extra]), 0)
             self.assertEqual([r["as_path"] for r in json.loads(output.getvalue())], expected)
         errors = io.StringIO()
         with patch("looking_glass.lookup", return_value=routes), redirect_stdout(io.StringIO()), redirect_stderr(errors):
-            self.assertEqual(main(["158.63.2.23", "--short-as-path"]), 0)
+            self.assertEqual(main(["10.22.2.23", "--short-as-path"]), 0)
         self.assertIn("Showing 3 of 5 observed routes (2 prefixes)", errors.getvalue())
 
     def test_entries_per_prefix_limits_each_prefix(self):
         routes = [{"prefix": prefix, "peer": str(index)}
-                  for prefix in ("158.63.2.0/24", "158.63.0.0/16")
+                  for prefix in ("10.22.2.0/24", "10.22.0.0/16")
                   for index in range(3)]
         output, errors = io.StringIO(), io.StringIO()
         with patch("looking_glass.lookup", return_value=routes), redirect_stdout(output), redirect_stderr(errors):
-            self.assertEqual(main(["158.63.2.23", "--entries-per-prefix", "1"]), 0)
-        self.assertEqual(output.getvalue().count("158.63.2.0/24"), 1)
-        self.assertEqual(output.getvalue().count("158.63.0.0/16"), 1)
+            self.assertEqual(main(["10.22.2.23", "--entries-per-prefix", "1"]), 0)
+        self.assertEqual(output.getvalue().count("10.22.2.0/24"), 1)
+        self.assertEqual(output.getvalue().count("10.22.0.0/16"), 1)
         self.assertIn("Showing 2 of 6 observed routes (2 prefixes)", errors.getvalue())
         output = io.StringIO()
         with patch("looking_glass.lookup", return_value=routes), redirect_stdout(output):
-            self.assertEqual(main(["158.63.2.23", "--entries-per-prefix", "2", "--json"]), 0)
+            self.assertEqual(main(["10.22.2.23", "--entries-per-prefix", "2", "--json"]), 0)
         import json
         self.assertEqual(len(json.loads(output.getvalue())), 4)
 
@@ -101,11 +101,11 @@ class LookupTests(unittest.TestCase):
     def test_default_routes_require_opt_in(self):
         data = {"rrcs": [{"rrc": "RRC01", "peers": [{"prefix": "0.0.0.0/0"}]}]}
         with patch("looking_glass._get", return_value=data):
-            self.assertEqual(lookup("158.63.1.0"), [])
-            routes = lookup("158.63.1.0", include_default=True)
+            self.assertEqual(lookup("10.22.1.0"), [])
+            routes = lookup("10.22.1.0", include_default=True)
             self.assertEqual(len(routes), 1)
             self.assertEqual(routes[0]["prefix"], "0.0.0.0/0")
-            self.assertEqual(lookup("158.63.1.0", best_match=True), [])
+            self.assertEqual(lookup("10.22.1.0", best_match=True), [])
 
     def test_collector_selection(self):
         data = {"rrcs": [{"rrc": name, "peers": [{"prefix": "8.8.8.0/24"}]}
@@ -130,50 +130,50 @@ class LookupTests(unittest.TestCase):
     def test_cidr_discovers_only_contained_prefixes(self):
         def api(endpoint, params, timeout):
             if endpoint == "related-prefixes":
-                self.assertEqual(params["resource"], "156.63.0.0/16")
+                self.assertEqual(params["resource"], "10.37.0.0/16")
                 return {"prefixes": [{"prefix": p} for p in (
-                    "156.63.148.0/24", "156.63.148.0/24", "156.62.0.0/16",
-                    "156.0.0.0/8", "2001:db8::/32")]}
+                    "10.37.148.0/24", "10.37.148.0/24", "10.36.0.0/16",
+                    "10.0.0.0/8", "2001:db8::/32")]}
             return {"rrcs": [{"rrc": "RRC00", "peers": [
                 {"prefix": params["resource"], "peer": "1.1.1.1"}]}]}
         with patch("looking_glass._get", side_effect=api) as api_mock:
-            routes = lookup("156.63.1.2/16", within=True)
+            routes = lookup("10.37.1.2/16", within=True)
         self.assertEqual({r["prefix"] for r in routes},
-                         {"156.63.0.0/16", "156.63.148.0/24"})
+                         {"10.37.0.0/16", "10.37.148.0/24"})
         self.assertEqual(api_mock.call_count, 3)
 
     def test_ipv6_cidr_and_best_match_rejection(self):
         with patch("looking_glass._get", return_value={"prefixes": [], "rrcs": []}):
             self.assertEqual(lookup("2001:db8::/32"), [])
         with self.assertRaises(ValueError):
-            lookup("156.63.0.0/16", best_match=True)
+            lookup("10.37.0.0/16", best_match=True)
 
     def test_cidr_defaults_to_exact_match(self):
         data = {"rrcs": [{"rrc": "RRC00", "peers": [
-            {"prefix": p} for p in ("156.63.0.0/16", "156.63.148.0/24", "156.0.0.0/8")]}]}
+            {"prefix": p} for p in ("10.37.0.0/16", "10.37.148.0/24", "10.0.0.0/8")]}]}
         with patch("looking_glass._get", return_value=data) as api:
-            routes = lookup("156.63.0.0/16")
-        self.assertEqual([r["prefix"] for r in routes], ["156.63.0.0/16"])
+            routes = lookup("10.37.0.0/16")
+        self.assertEqual([r["prefix"] for r in routes], ["10.37.0.0/16"])
         api.assert_called_once_with("looking-glass", {
-            "resource": "156.63.0.0/16", "look_back_limit": 86400}, 30)
+            "resource": "10.37.0.0/16", "look_back_limit": 86400}, 30)
         with self.assertRaises(ValueError):
-            lookup("156.63.0.0", within=True)
+            lookup("10.37.0.0", within=True)
 
     def test_routeviews_matching_and_normalization(self):
         data = [{"prefix": prefix, "origin_asn": 22238, "reporting_peers": [
             {"collector": "route-views3", "peer_addr": "1.2.3.4",
              "as_path": "174 22238", "timestamp": "2026-10-28T00:00:00Z"}]}
-            for prefix in ("158.63.4.0/24", "158.63.0.0/16", "0.0.0.0/0")]
+            for prefix in ("10.22.4.0/24", "10.22.0.0/16", "0.0.0.0/0")]
         with patch("looking_glass._rv_get", return_value=data) as api:
-            routes = lookup("158.63.4.1", provider="routeviews")
+            routes = lookup("10.22.4.1", provider="routeviews")
             self.assertEqual(len(routes), 2)
             self.assertEqual(routes[0]["peer"], "1.2.3.4")
             self.assertNotIn("latest_time", routes[0])
-            api.assert_called_once_with("prefix/158.63.4.1/32", {}, 30)
-            exact = lookup("158.63.0.0/16", provider="routeviews")
-            self.assertEqual([r["prefix"] for r in exact], ["158.63.0.0/16"])
-            best = lookup("158.63.4.1", provider="routeviews", best_match=True)
-            self.assertEqual([r["prefix"] for r in best], ["158.63.4.0/24"])
+            api.assert_called_once_with("prefix/10.22.4.1/32", {}, 30)
+            exact = lookup("10.22.0.0/16", provider="routeviews")
+            self.assertEqual([r["prefix"] for r in exact], ["10.22.0.0/16"])
+            best = lookup("10.22.4.1", provider="routeviews", best_match=True)
+            self.assertEqual([r["prefix"] for r in best], ["10.22.4.0/24"])
 
     def test_routeviews_collector_selection(self):
         def api(path, params, timeout):

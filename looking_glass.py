@@ -100,7 +100,7 @@ def lookup(address, *, servers=None, num_servers=None, best_match=False,
     if network is not None and best_match:
         raise ValueError("--best-match applies to IP addresses, not CIDR searches")
     if within and network is None:
-        raise ValueError("--within requires a CIDR, e.g. 156.63.0.0/16")
+        raise ValueError("--within requires a CIDR, e.g. 10.37.0.0/16")
     if not math.isfinite(timeout) or timeout <= 0 or look_back_limit <= 0:
         raise ValueError("timeout and look_back_limit must be positive")
     if num_servers is not None and num_servers <= 0:
