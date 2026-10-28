@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 import ipaddress
 import json
 import math
+import ssl
+from functools import partial
 import sys
 import threading
 import time
@@ -44,11 +46,16 @@ def _format_timestamp(value, zone):
     return parsed.astimezone(zone).isoformat(sep=" ")
 
 
-def _get(endpoint, params, timeout):
+def _ssl_options(insecure):
+    # Scope the bypass to this request; never change global TLS defaults.
+    return {"context": ssl._create_unverified_context()} if insecure else {}
+
+
+def _get(endpoint, params, timeout, *, insecure=False):
     url = f"{BASE_URL}/{endpoint}/data.json?{urlencode(params)}"
     try:
         request = Request(url, headers={"User-Agent": "internet-looking-glass/0.1"})
-        with urlopen(request, timeout=timeout) as response:
+        with urlopen(request, timeout=timeout, **_ssl_options(insecure)) as response:
             result = json.load(response)
         if result.get("status") != "ok" or not isinstance(result.get("data"), dict):
             raise LookingGlassError(f"{endpoint}: {result.get('messages', 'invalid response')}")
@@ -57,7 +64,7 @@ def _get(endpoint, params, timeout):
         raise LookingGlassError(f"{endpoint}: {exc}") from exc
 
 
-def _rv_get(path, params, timeout):
+def _rv_get(path, params, timeout, *, insecure=False):
     global _rv_last_request
     # Guest access permits one request per second, including discovery calls.
     with _rv_lock:
@@ -65,7 +72,7 @@ def _rv_get(path, params, timeout):
         _rv_last_request = time.monotonic()
         url = f"https://api.routeviews.org/{path}?{urlencode(params)}"
         try:
-            with urlopen(Request(url, headers={"User-Agent": "internet-looking-glass/0.1"}), timeout=timeout) as response:
+            with urlopen(Request(url, headers={"User-Agent": "internet-looking-glass/0.1"}), timeout=timeout, **_ssl_options(insecure)) as response:
                 result = json.load(response)
             if not isinstance(result, list):
                 raise LookingGlassError(f"RouteViews {path}: expected a list response")
@@ -74,18 +81,20 @@ def _rv_get(path, params, timeout):
             raise LookingGlassError(f"RouteViews {path}: {exc}") from exc
 
 
-def list_servers(timeout=30, *, provider="ripe"):
+def list_servers(timeout=30, *, provider="ripe", insecure=False):
     """Return collector IDs for the selected public provider."""
+    get = partial(_get, insecure=True) if insecure else _get
+    rv_get = partial(_rv_get, insecure=True) if insecure else _rv_get
     if provider == "routeviews":
-        return sorted(_rv_get("rib/collectors", {}, timeout))
+        return sorted(rv_get("rib/collectors", {}, timeout))
     if provider != "ripe":
         raise ValueError(f"Unknown provider: {provider}")
-    return sorted(key.upper() for key in _get("ris-peers", {}, timeout)["peers"])
+    return sorted(key.upper() for key in get("ris-peers", {}, timeout)["peers"])
 
 
 def lookup(address, *, servers=None, num_servers=None, best_match=False,
            timeout=30, look_back_limit=86400, include_default=False, within=False,
-           provider="ripe"):
+           provider="ripe", insecure=False):
     """Return routes covering an IP, matching a CIDR exactly, or within a CIDR.
 
     By default queries every covering prefix except /0. include_default=True
@@ -95,6 +104,9 @@ def lookup(address, *, servers=None, num_servers=None, best_match=False,
     locally; they do not reduce the API response size. Failed queries raise,
     so partial results are never silently represented as complete.
     """
+    get = partial(_get, insecure=True) if insecure else _get
+    rv_get = partial(_rv_get, insecure=True) if insecure else _rv_get
+    tls_options = {"insecure": True} if insecure else {}
     network = ipaddress.ip_network(address, strict=False) if "/" in address else None
     ip = network.network_address if network else ipaddress.ip_address(address)
     if network is not None and best_match:
@@ -111,7 +123,7 @@ def lookup(address, *, servers=None, num_servers=None, best_match=False,
         raise ValueError("--look-back-limit is supported only by RIPE")
     selected = None
     if servers or num_servers is not None:
-        available = list_servers(timeout) if provider == "ripe" else list_servers(timeout, provider=provider)
+        available = list_servers(timeout, **tls_options) if provider == "ripe" else list_servers(timeout, provider=provider, **tls_options)
         normalize = str.upper if provider == "ripe" else str.lower
         selected = sorted({normalize(s) for s in servers}) if servers else available
         unknown = set(selected) - set(available)
@@ -120,7 +132,7 @@ def lookup(address, *, servers=None, num_servers=None, best_match=False,
         if num_servers is not None:
             selected = selected[:num_servers]
     if network is not None and within:
-        related = _get("related-prefixes", {"resource": str(network)}, timeout)
+        related = get("related-prefixes", {"resource": str(network)}, timeout)
         prefixes = {network}
         for entry in related["prefixes"]:
             prefix = ipaddress.ip_network(entry["prefix"])
@@ -139,7 +151,7 @@ def lookup(address, *, servers=None, num_servers=None, best_match=False,
 
     def fetch(resource):
         if provider == "routeviews":
-            groups = _rv_get(f"prefix/{resource}", {"strict-match": "yes"} if network is not None else {}, timeout)
+            groups = rv_get(f"prefix/{resource}", {"strict-match": "yes"} if network is not None else {}, timeout)
             routes = []
             for group in groups:
                 prefix = ipaddress.ip_network(group["prefix"])
@@ -160,7 +172,7 @@ def lookup(address, *, servers=None, num_servers=None, best_match=False,
                                    "rpki_roas": group.get("rpki_roas"),
                                    "provider": provider})
             return routes
-        data = _get("looking-glass", {
+        data = get("looking-glass", {
             "resource": resource, "look_back_limit": look_back_limit,
         }, timeout)
         routes = []
@@ -213,6 +225,7 @@ def main(argv=None):
     parser.add_argument("--entries-per-prefix", type=int, metavar="N", help="show at most N peer paths per prefix (default: all)")
     parser.add_argument("--short-as-path", action="store_true", help="keep only the shortest AS paths per prefix (including ties)")
     parser.add_argument("--time-zone", default="EST", help="text timestamp zone: EST (default, fixed UTC-05:00), UTC, or IANA name")
+    parser.add_argument("--insecure", action="store_true", help="disable TLS certificate verification for API requests")
     parser.add_argument("--timeout", type=float, default=30, help="per-request timeout in seconds")
     parser.add_argument("--look-back-limit", type=int, default=86400, help="maximum route confirmation age in seconds")
     args = parser.parse_args(argv)
@@ -223,7 +236,7 @@ def main(argv=None):
         if not math.isfinite(args.timeout) or args.timeout <= 0:
             raise ValueError("timeout must be positive and finite")
         if args.list_servers:
-            print("\n".join(list_servers(args.timeout, provider=args.provider)))
+            print("\n".join(list_servers(args.timeout, provider=args.provider, insecure=args.insecure)))
             return 0
         if not args.address:
             parser.error("address is required unless --list-servers is used")
@@ -234,7 +247,7 @@ def main(argv=None):
                         best_match=args.best_match, timeout=args.timeout,
                         look_back_limit=args.look_back_limit,
                         include_default=args.include_default, within=args.within,
-                        provider=args.provider)
+                        provider=args.provider, insecure=args.insecure)
         total_routes = len(routes)
         if args.short_as_path:
             shortest = {}

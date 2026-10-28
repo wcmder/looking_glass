@@ -35,6 +35,26 @@ pip 21.3 or newer. Python 3.10 or newer is also required.
 
 Without installation, use `python3 looking_glass.py 8.8.8.8`.
 
+For certificate verification errors during API requests, use `--insecure`:
+
+```sh
+lg 8.8.8.8 --insecure
+lg --provider routeviews --list-servers --insecure
+```
+
+This disables certificate and hostname verification for all API requests in
+that invocation, including collector and prefix discovery. Verification is
+enabled by default. Python callers can pass `insecure=True` to `lookup()` or
+`list_servers()`. Use this only when you accept the risk of an impersonated server.
+
+If the certificate error happens during pip installation instead, use pip's
+host-specific bypass for PyPI:
+
+```sh
+python3 -m pip install --upgrade pip --trusted-host pypi.org --trusted-host files.pythonhosted.org
+python3 -m pip install -e . --trusted-host pypi.org --trusted-host files.pythonhosted.org
+```
+
 Use `--entries-per-prefix N` to display at most N peer paths for each distinct
 prefix, across the selected collectors. Default output includes all paths.
 This limits both text and JSON output, preserving the existing route order;
