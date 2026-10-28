@@ -210,12 +210,16 @@ def main(argv=None):
     parser.add_argument("--best-match", action="store_true", help="single encompassing-prefix query")
     parser.add_argument("--include-default", action="store_true", help="include /0 routes (not evidence of an IP announcement)")
     parser.add_argument("--json", action="store_true", help="print all route attributes as JSON")
+    parser.add_argument("--entries-per-prefix", type=int, metavar="N", help="show at most N peer paths per prefix (default: all)")
+    parser.add_argument("--short-as-path", action="store_true", help="keep only the shortest AS paths per prefix (including ties)")
     parser.add_argument("--time-zone", default="EST", help="text timestamp zone: EST (default, fixed UTC-05:00), UTC, or IANA name")
     parser.add_argument("--timeout", type=float, default=30, help="per-request timeout in seconds")
     parser.add_argument("--look-back-limit", type=int, default=86400, help="maximum route confirmation age in seconds")
     args = parser.parse_args(argv)
     try:
         zone = _time_zone(args.time_zone)
+        if args.entries_per_prefix is not None and args.entries_per_prefix <= 0:
+            raise ValueError("--entries-per-prefix must be positive")
         if not math.isfinite(args.timeout) or args.timeout <= 0:
             raise ValueError("timeout must be positive and finite")
         if args.list_servers:
@@ -231,6 +235,24 @@ def main(argv=None):
                         look_back_limit=args.look_back_limit,
                         include_default=args.include_default, within=args.within,
                         provider=args.provider)
+        total_routes = len(routes)
+        if args.short_as_path:
+            shortest = {}
+            for route in routes:
+                prefix = route["prefix"]
+                length = len(route.get("as_path", "").split())
+                shortest[prefix] = min(shortest.get(prefix, float("inf")), length)
+            routes = [route for route in routes
+                      if len(route.get("as_path", "").split()) == shortest[route["prefix"]]]
+        if args.entries_per_prefix is not None:
+            counts = {}
+            displayed = []
+            for route in routes:
+                prefix = route["prefix"]
+                counts[prefix] = counts.get(prefix, 0) + 1
+                if counts[prefix] <= args.entries_per_prefix:
+                    displayed.append(route)
+            routes = displayed
         if args.json:
             print(json.dumps(routes, indent=2))
         else:
@@ -248,7 +270,10 @@ def main(argv=None):
             widths = [max(len(row[index]) for row in rows) for index in range(len(headers))]
             for row in rows:
                 print("  ".join(cell.ljust(width) for cell, width in zip(row[:-1], widths[:-1])) + "  " + row[-1])
-            print(f"{len(routes)} observed routes", file=sys.stderr)
+            if len(routes) < total_routes:
+                print(f"Showing {len(routes)} of {total_routes} observed routes ({len({route['prefix'] for route in routes})} prefixes)", file=sys.stderr)
+            else:
+                print(f"{total_routes} observed routes", file=sys.stderr)
         return 0
     except (LookingGlassError, ValueError, KeyError, TypeError) as exc:
         print(f"lg: {exc}", file=sys.stderr)

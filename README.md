@@ -20,12 +20,29 @@ lg 158.63.4.0/24 --provider routeviews
 lg --provider routeviews --list-servers
 lg 158.63.4.0/24 --time-zone UTC
 lg 158.63.4.0/24 --time-zone America/New_York
+lg 158.63.2.23 --entries-per-prefix 1
 ```
 
 For later sessions, run `source .venv/bin/activate` to make `lg` available.
 The editable installation picks up changes to the Python source automatically.
 
 Without installation, use `python3 looking_glass.py 8.8.8.8`.
+
+Use `--entries-per-prefix N` to display at most N peer paths for each distinct
+prefix, across the selected collectors. Default output includes all paths.
+This limits both text and JSON output, preserving the existing route order;
+it does not reduce API requests or choose a best path. Text output reports
+the displayed count and total observed count when paths are hidden.
+For a quick visibility check, use `lg 158.63.2.23 --best-match --entries-per-prefix 1`.
+A result means the selected provider/collector observes a route, not proof
+of end-to-end reachability.
+
+Use `--short-as-path` to keep only the shortest AS paths for each prefix
+across the selected collectors. Ties are retained. Length is the number
+of whitespace-separated AS path entries, including repeated ASNs (prepends).
+This is an output filter, not the full BGP best-path selection process.
+It works with either provider and JSON, and runs before the per-prefix limit:
+`lg 158.63.2.23 --short-as-path --entries-per-prefix 1`.
 
 Text timestamps default to **EST (fixed UTC−05:00, year round)**. Select a
 different zone with `--time-zone UTC` or an IANA name such as

@@ -7,6 +7,47 @@ from looking_glass import lookup, LookingGlassError, main, _format_timestamp, _t
 
 
 class LookupTests(unittest.TestCase):
+    def test_short_as_path_per_prefix_ties_and_limit(self):
+        import json
+        routes = [{"prefix": prefix, "as_path": path}
+                  for prefix, path in [("158.63.2.0/24", "1 2 3 3"),
+                                       ("158.63.2.0/24", "1 3"),
+                                       ("158.63.2.0/24", "2 3"),
+                                       ("158.63.0.0/16", "1 2 3"),
+                                       ("158.63.0.0/16", "1 2 3 3")]]
+        for extra, expected in (([], ["1 3", "2 3", "1 2 3"]),
+                                (["--entries-per-prefix", "1"], ["1 3", "1 2 3"])):
+            output = io.StringIO()
+            with patch("looking_glass.lookup", return_value=routes), redirect_stdout(output):
+                self.assertEqual(main(["158.63.2.23", "--short-as-path", "--json", *extra]), 0)
+            self.assertEqual([r["as_path"] for r in json.loads(output.getvalue())], expected)
+        errors = io.StringIO()
+        with patch("looking_glass.lookup", return_value=routes), redirect_stdout(io.StringIO()), redirect_stderr(errors):
+            self.assertEqual(main(["158.63.2.23", "--short-as-path"]), 0)
+        self.assertIn("Showing 3 of 5 observed routes (2 prefixes)", errors.getvalue())
+
+    def test_entries_per_prefix_limits_each_prefix(self):
+        routes = [{"prefix": prefix, "peer": str(index)}
+                  for prefix in ("158.63.2.0/24", "158.63.0.0/16")
+                  for index in range(3)]
+        output, errors = io.StringIO(), io.StringIO()
+        with patch("looking_glass.lookup", return_value=routes), redirect_stdout(output), redirect_stderr(errors):
+            self.assertEqual(main(["158.63.2.23", "--entries-per-prefix", "1"]), 0)
+        self.assertEqual(output.getvalue().count("158.63.2.0/24"), 1)
+        self.assertEqual(output.getvalue().count("158.63.0.0/16"), 1)
+        self.assertIn("Showing 2 of 6 observed routes (2 prefixes)", errors.getvalue())
+        output = io.StringIO()
+        with patch("looking_glass.lookup", return_value=routes), redirect_stdout(output):
+            self.assertEqual(main(["158.63.2.23", "--entries-per-prefix", "2", "--json"]), 0)
+        import json
+        self.assertEqual(len(json.loads(output.getvalue())), 4)
+
+    def test_invalid_entries_limit(self):
+        for limit in ("0", "-1"):
+            with patch("looking_glass.lookup") as query, redirect_stderr(io.StringIO()):
+                self.assertEqual(main(["8.8.8.8", "--entries-per-prefix", limit]), 1)
+            query.assert_not_called()
+
     def test_timestamp_zones_and_dst(self):
         self.assertEqual(_format_timestamp("2026-07-01T02:00:00Z", _time_zone("EST")),
                          "2026-06-30 21:00:00-05:00")
